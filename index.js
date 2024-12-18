@@ -1,84 +1,109 @@
 require('dotenv').config();
 const api = require('./api');
+const WebSocket = require('ws');
 
-const SYMBOL = process.env.SYMBOL;
-const PROFIT = parseFloat(process.env.PROFIT);
+
+// Configurações iniciais
+const args = process.argv.slice(2);
+const SYMBOL = args[0] || process.env.SYMBOL;
+
+const PROFIT = parseFloat(process.env.PROFIT); // Fator de lucro (exemplo: 1.05 para 5%)
 const BUY_QTY = parseFloat(process.env.BUY_QTY);
 
-const WebSocket = require('ws');
+// Conexão WebSocket com Binance
 const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${SYMBOL.toLowerCase()}@bookTicker`);
 
-//não mexa nestas variáveis
+// Variáveis globais
 let quantity = 0;
 let buyPrice = 0;
 
+let bestAsk = 0;
+let bestBid = 0;
+let currentPrice = 0;
+let initialLoop = false;
+let initialPrice = 0;
+let gain = 0;
+let cont = 0;
+let initialTicket = 0;
+let endTicket = 0;
 
-let bestAsk = parseFloat(0)
-let bestBid = parseFloat(0)
-let currentPrice = parseFloat(0)
-let initiaLoop = parseFloat(0)
-let initialPrice = parseFloat(0)
-let gain = parseFloat(0)
-
+// Tratamento de erro do WebSocket
 ws.on('error', (err) => {
-    console.log('WS Error');
-    console.error(err);
+    console.error('WebSocket Error:', err);
     process.exit(1);
-})
+});
 
+// Evento ao receber mensagem do WebSocket
 ws.onmessage = async (event) => {
-
     try {
-        const obj = JSON.parse(event.data);
-        console.clear();
-        bestAsk = parseFloat(obj.a)
-        bestBid = parseFloat(obj.b)
-        currentPrice = (bestAsk + bestBid) / 2
-        
-        if (initiaLoop == 0) { 
-            initialPrice = currentPrice
-            initiaLoop = 1
+        const data = JSON.parse(event.data);
 
+        // Atualiza valores
+        bestAsk = parseFloat(data.a);
+        bestBid = parseFloat(data.b);
+        currentPrice = parseFloat(((bestAsk + bestBid) / 2).toFixed(8)); // 8 casas decimais para valores de preço
+
+        cont++;
+
+        if (gain < -0.02){
+            cont = 0;
+           initialLoop = false;
         }
 
-        gain = ((currentPrice / initialPrice) - 1) * 100 
-        console.log(`ticket: ${obj.u}`);
-        console.log(`Symbol: ${obj.s}`);
-        console.log(`Best ask: ${obj.a}`);
-        console.log(`Best bid: ${obj.b}`);
-        console.log (`Initial Price: ${initialPrice} `)
-        console.log (`Current Price: ${currentPrice} `)
-        console.log (`% Ganho: ${gain} `)
 
+        // Reinicia o loop se um novo ticket é detectado
+        if (data.u > endTicket) {
+         cont = 0;
+            initialLoop = false;
+        }
 
-      //  console.log(`Buy Price: ${buyPrice}`);
-      //  console.log(`Qty: ${quantity}`);
-      //  console.log(`Notional: ${buyPrice * quantity}`);
-      //  console.log(`Target Price: ${buyPrice * PROFIT}`);
+        // Define os preços iniciais no início do loop
+        if (!initialLoop) {
+            initialTicket = data.u;
+            endTicket = initialTicket + 25000; // Define um intervalo de tempo (15 segundos)
+            initialPrice = currentPrice;
+            initialLoop = true;
+        }
 
+        // Calcula o ganho percentual
+        gain = (parseFloat((((currentPrice / initialPrice) - 1) * 100).toFixed(2))); // 2 casas decimais para percentual
+
+        // Exibe informações formatadas
+        console.clear();
+        console.log(`Contador: ${cont} | Ticket Atual: ${data.u} | Símbolo: ${data.s}`);
+        console.log(`Best Ask: ${bestAsk.toFixed(8)} | Best Bid: ${bestBid.toFixed(8)}`);
+        console.log(`Preço Inicial: ${initialPrice.toFixed(8)} | Preço Atual: ${currentPrice.toFixed(8)}`);
+        console.log(`Ganho (%): ${gain.toFixed(3)}%`);
+
+        // Lógica de compra
         if (quantity === 0) {
-            quantity = -1;
+            quantity = -1; // Marca como processando compra
 
-     //       const order = await api.buy(SYMBOL, BUY_QTY);
-       //     if (order.status !== 'FILLED') {
-       //         console.log(order);
-        //        process.exit(1);
-        //    }
+            // Simulação de compra (descomentar caso API de compra seja usada)
+            // const order = await api.buy(SYMBOL, BUY_QTY);
+            // if (order.status !== 'FILLED') {
+            //     console.error('Erro ao comprar:', order);
+            //     process.exit(1);
+            // }
+            // quantity = parseFloat(order.executedQty);
+            // buyPrice = parseFloat(order.fills[0].price);
 
-         //   quantity = parseFloat(order.executedQty);
-        //    buyPrice = parseFloat(order.fills[0].price);
             return;
         }
-        else if (quantity > 0 && parseFloat(obj.b) > (buyPrice * PROFIT)) {
-    //        const order = await api.sell(SYMBOL, quantity);
-       //     if (order.status !== 'FILLED')
-       //         console.log(order);
-        //    else
-       //         console.log(`Sold at ${new Date()} by ${order.fills[0].price}`);
-      //      process.exit(1);
+
+        // Lógica de venda
+        if (quantity > 0 && bestBid > (buyPrice * PROFIT)) {
+            // Simulação de venda (descomentar caso API de venda seja usada)
+            // const order = await api.sell(SYMBOL, quantity);
+            // if (order.status !== 'FILLED') {
+            //     console.error('Erro ao vender:', order);
+            // } else {
+            //     console.log(`Vendido às ${new Date()} pelo preço ${order.fills[0].price}`);
+            // }
+            // process.exit(1);
         }
     } catch (err) {
-        console.error(err);
+        console.error('Erro ao processar dados do WebSocket:', err);
         process.exit(1);
     }
-}
+};
